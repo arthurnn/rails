@@ -83,11 +83,15 @@ module ActiveRecord
         end
       end
 
+      def rollback_record(record)
+        record.rolledback!
+      end
+
       def rollback_records
         @state.set_state(:rolledback)
         records.uniq.each do |record|
           begin
-            record.rolledback!(self.is_a?(RealTransaction))
+            rollback_record(record)
           rescue => e
             record.logger.error(e) if record.respond_to?(:logger) && record.logger
           end
@@ -123,6 +127,10 @@ module ActiveRecord
         else
           connection.begin_db_transaction
         end
+      end
+
+      def rollback_record(record)
+        record.rolledback!(true)
       end
 
       def perform_rollback
