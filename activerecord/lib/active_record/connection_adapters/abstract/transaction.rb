@@ -1,7 +1,7 @@
 module ActiveRecord
   module ConnectionAdapters
     class TransactionState
-      VALID_STATES = Set.new([:committed, :rolledback, nil])
+      VALID_STATES = Set.new([:begun, :committed, :rolledback, nil])
 
       def initialize(state = nil)
         @state = state
@@ -17,6 +17,10 @@ module ActiveRecord
 
       def rolledback?
         @state == :rolledback
+      end
+
+      def begun?
+        @state == :begun
       end
 
       def completed?
@@ -41,7 +45,7 @@ module ActiveRecord
     end
 
     class Transaction #:nodoc:
-      attr_reader :connection, :state, :records, :savepoint_name
+      attr_reader :connection, :state, :records, :savepoint_name, :isolation
       attr_writer :joinable
 
       def initialize(connection, options, run_commit_callbacks: false)
@@ -50,10 +54,15 @@ module ActiveRecord
         @records = []
         @joinable = options.fetch(:joinable, true)
         @run_commit_callbacks = run_commit_callbacks
+        @isolation = options[:isolation]
       end
 
       def add_record(record)
         records << record
+      end
+
+      def beginn
+        @state.set_state(:begun)
       end
 
       def rollback
@@ -105,16 +114,25 @@ module ActiveRecord
         if options[:isolation]
           raise ActiveRecord::TransactionIsolationError, "cannot set transaction isolation in a nested transaction"
         end
-        connection.create_savepoint(@savepoint_name = savepoint_name)
+        @savepoint_name = savepoint_name
+      end
+
+      def beginn
+        connection.create_savepoint(savepoint_name)
+        super
       end
 
       def rollback
-        connection.rollback_to_savepoint(savepoint_name)
+        if state.begun?
+          connection.rollback_to_savepoint(savepoint_name)
+        end
         super
       end
 
       def commit
-        connection.release_savepoint(savepoint_name)
+        if state.begun?
+          connection.release_savepoint(savepoint_name)
+        end
         super
       end
 
@@ -122,22 +140,31 @@ module ActiveRecord
     end
 
     class RealTransaction < Transaction
-      def initialize(connection, options, *args)
+      def initialize(*)
         super
-        if options[:isolation]
-          connection.begin_isolated_db_transaction(options[:isolation])
+        #beginn()
+      end
+
+      def beginn
+        if isolation
+          connection.begin_isolated_db_transaction(isolation)
         else
           connection.begin_db_transaction
         end
+        super
       end
 
       def rollback
-        connection.rollback_db_transaction
+        if state.begun?
+          connection.rollback_db_transaction
+        end
         super
       end
 
       def commit
-        connection.commit_db_transaction
+        if state.begun?
+          connection.commit_db_transaction
+        end
         super
       end
     end
@@ -149,6 +176,12 @@ module ActiveRecord
       end
 
       def begin_transaction(options = {})
+        transaction = new_transaction(options)
+        transaction.beginn
+        transaction
+      end
+
+      def new_transaction(options = {})
         run_commit_callbacks = !current_transaction.joinable?
         transaction =
           if @stack.empty?
@@ -160,6 +193,12 @@ module ActiveRecord
 
         @stack.push(transaction)
         transaction
+      end
+
+      def ensure_begin
+        if transaction = @stack.last
+          transaction.beginn unless transaction.state.begun?
+        end
       end
 
       def commit_transaction

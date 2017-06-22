@@ -88,6 +88,7 @@ module ActiveRecord
       # +binds+ as the bind substitutes. +name+ is logged along with
       # the executed +sql+ statement.
       def exec_insert(sql, name = nil, binds = [], pk = nil, sequence_name = nil)
+        transaction_manager.ensure_begin
         sql, binds = sql_for_insert(sql, pk, nil, sequence_name, binds)
         exec_query(sql, name, binds)
       end
@@ -108,6 +109,7 @@ module ActiveRecord
       # +binds+ as the bind substitutes. +name+ is logged along with
       # the executed +sql+ statement.
       def exec_update(sql, name = nil, binds = [])
+        transaction_manager.ensure_begin
         exec_query(sql, name, binds)
       end
 
@@ -120,6 +122,7 @@ module ActiveRecord
       # If the next id was calculated in advance (as in Oracle), it should be
       # passed in as +id_value+.
       def insert(arel, name = nil, pk = nil, id_value = nil, sequence_name = nil, binds = [])
+        transaction_manager.ensure_begin
         value = exec_insert(to_sql(arel, binds), name, binds, pk, sequence_name)
         id_value || last_inserted_id(value)
       end
@@ -127,11 +130,13 @@ module ActiveRecord
 
       # Executes the update statement and returns the number of rows affected.
       def update(arel, name = nil, binds = [])
+        transaction_manager.ensure_begin
         exec_update(to_sql(arel, binds), name, binds)
       end
 
       # Executes the delete statement and returns the number of rows affected.
       def delete(arel, name = nil, binds = [])
+        transaction_manager.ensure_begin
         exec_delete(to_sql(arel, binds), name, binds)
       end
 

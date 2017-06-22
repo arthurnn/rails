@@ -9,7 +9,7 @@ unless ActiveRecord::Base.connection.supports_transaction_isolation?
 
     test "setting the isolation level raises an error" do
       assert_raises(ActiveRecord::TransactionIsolationError) do
-        Tag.transaction(isolation: :serializable) {}
+        Tag.transaction(isolation: :serializable) { Tag.create }
       end
     end
   end
